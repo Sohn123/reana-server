@@ -43,6 +43,47 @@ ADMIN_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 SHARED_VOLUME_PATH = os.getenv("SHARED_VOLUME_PATH", "/var/reana")
 
+REANA_SPEC_BUNDLE_MAX_FILES = int(os.getenv("REANA_SPEC_BUNDLE_MAX_FILES", "1000"))
+"""Maximum number of files accepted in an uploaded specification bundle.
+
+Bounds the staging of an untrusted multipart upload so a client cannot exhaust
+the shared volume with a huge bundle."""
+
+REANA_SPEC_BUNDLE_MAX_BYTES = int(
+    os.getenv("REANA_SPEC_BUNDLE_MAX_BYTES", str(100 * 1024 * 1024))
+)
+"""Maximum total size (bytes) accepted in an uploaded specification bundle."""
+
+REANA_ENVIRONMENT_CHECK_REGISTRIES = [
+    registry.strip()
+    for registry in os.getenv(
+        "REANA_ENVIRONMENT_CHECK_REGISTRIES",
+        "docker.io,quay.io,ghcr.io,gcr.io,registry.cern.ch,gitlab-registry.cern.ch",
+    ).split(",")
+    if registry.strip()
+]
+"""Registry hosts the optional ``validate --environments`` check may contact.
+
+Bounds SSRF: the image-existence/UID check only reaches these hosts (an empty
+list allows any). Operators extend it with their own (private) registries."""
+
+REANA_ENVIRONMENT_CHECK_TIMEOUT = int(
+    os.getenv("REANA_ENVIRONMENT_CHECK_TIMEOUT", "10")
+)
+"""Per-request timeout (seconds) for registry calls in the environment check."""
+
+REANA_SPEC_VALIDATION_TIMEOUT = int(os.getenv("REANA_SPEC_VALIDATION_TIMEOUT", "60"))
+"""Wall-clock budget (seconds) used to size the server's read timeout for a
+sandboxed spec validation call.
+
+Read from the same ``REANA_SPEC_VALIDATION_TIMEOUT`` environment variable as
+reana-workflow-controller, which owns the actual sandbox Job
+``activeDeadlineSeconds``; the default matches the controller's so the two agree
+when the variable is unset. This value is *not* the deadline itself -- the
+server derives a longer read timeout from it (``+120s``, above the controller's
+``timeout + 60`` wait) so it never gives up before the controller's sandbox
+deadline elapses."""
+
 REANA_HOSTNAME = os.getenv("REANA_HOSTNAME", "localhost")
 REANA_HOSTPORT = os.getenv("REANA_HOSTPORT", "30443")
 REANA_URL = compose_reana_url(REANA_HOSTNAME, REANA_HOSTPORT)
@@ -424,6 +465,11 @@ REANA_RATELIMIT_SLOWEST = _get_rate_limit("REANA_RATELIMIT_SLOWEST", "5 per hour
 
 RATELIMIT_PER_ENDPOINT = {
     "launch.launch": REANA_RATELIMIT_SLOW,
+    # Both endpoints can spawn a sandboxed validation Job per call (for
+    # non-serial specs), so throttle them like ``launch`` to bound the rate at
+    # which an authenticated user can drive validator Jobs against the cluster.
+    "workflows.validate_workflow_specification": REANA_RATELIMIT_SLOW,
+    "workflows.create_workflow": REANA_RATELIMIT_SLOW,
     "users.request_token": REANA_RATELIMIT_SLOWEST,
 }
 
